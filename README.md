@@ -5,8 +5,6 @@
 **Status:** Prototype V1.0 (Completed Fall 2025)  
 **Tech Stack:** Embedded C++, PWM Actuation, Signal Processing, COTS Integration
 
-![Project Banner]([LINK TO YOUR PHOTO])
-
 ## 1. Project Abstract
 This project prototypes a **sterile, non-contact teleoperation interface** for a robotic manipulator. Designed to mimic the master-slave architecture of surgical systems, the interface uses ultrasonic time-of-flight sensing to translate the operator's hand distance into proportional finger flexion.
 
