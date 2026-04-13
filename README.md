@@ -1,72 +1,74 @@
-# Non-Contact Teleoperated End-Effector (Proportional Control)
+# Non-Contact Teleoperated Hand
 
-**Author:** Maximilian Comsia  
-**Institution:** University of British Columbia, Electrical Engineering (Biomedical Option)  
-**Status:** Prototype V1.0 (Completed Fall 2025)  
-**Tech Stack:** Embedded C++, PWM Actuation, Signal Processing, COTS Integration
+![Hand](IMG_1260.jpeg)
 
-## 1. Project Abstract
-This project prototypes a **sterile, non-contact teleoperation interface** for a robotic manipulator. Designed to mimic the master-slave architecture of surgical systems, the interface uses ultrasonic time-of-flight sensing to translate the operator's hand distance into proportional finger flexion.
+## Overview
 
-The core engineering focus was overcoming the limitations of low-cost hardware through firmware. I developed a custom C++ control loop that implements **signal debouncing**, **slew-rate limiting** (motion smoothing), and **sequential power management** to ensure stable operation on a standard USB bus.
+A robotic hand that closes and opens based on how far your hand is from an ultrasonic sensor — no physical contact with the controller needed. Built around an Arduino Uno driving five servos through a tendon-driven InMoov-style hand kit, with a single HC-SR04 as the input.
 
-## 2. System Architecture
+The idea came from wanting to try a non-contact control scheme (vaguely inspired by sterile surgical interfaces where the operator can't touch the tool). Most of the engineering work wasn't the concept though — it was making cheap hardware behave: filtering out sensor noise, smoothing servo motion, and keeping the USB power rail from browning out when five servos move at once.
 
-### Hardware Implementation
-* **Microcontroller:** ATmega328P (Arduino Uno R3)
-* **Perception:** HC-SR04 Ultrasonic Transceiver (40kHz) for distance measurement.
-* **Actuation:** 5x SG90 Micro-Servos (Tendon-driven).
-* **End-Effector:** Integrated a COTS (Commercial Off-The-Shelf) InMoov-derivative hand kit.
-* **Mechanical Mods:** Manually routed/tensioned nylon tendons and added elastomeric traction pads to fingertips to increase friction coefficient for grasping.
+## Hardware
 
-### Electrical Interface & Pin Mapping
+- **Microcontroller:** Arduino Uno R3 (ATmega328P)
+- **Sensor:** HC-SR04 ultrasonic (40 kHz)
+- **Actuators:** 5× SG90 micro-servos, one per finger, tendon-driven with nylon cord
+- **End-effector:** InMoov-style 3D-printed hand (kit), with rubber pads added to the fingertips for grip
+- **Power:** USB 5V
 
-| Component | Signal Pin (Arduino) | Power Source | Notes |
-| :--- | :--- | :--- | :--- |
-| **Ultrasonic Trigger** | D11 | 5V Bus | Sends 10µs pulse |
-| **Ultrasonic Echo** | D12 | - | Returns pulse duration |
-| **Thumb Servo** | ~D3 (PWM) | 5V Bus | Range: 90° - 175° |
-| **Index Servo** | ~D5 (PWM) | 5V Bus | Range: 90° - 180° |
-| **Middle Servo** | ~D6 (PWM) | 5V Bus | Range: 90° - 0° |
-| **Ring Servo** | ~D9 (PWM) | 5V Bus | Range: 90° - 0° |
-| **Pinky Servo** | ~D10 (PWM) | 5V Bus | Range: 90° - 0° |
+## Pin Mapping
 
-*> **Note:** All servos share a common Ground (GND) to prevent floating voltage references.*
+| Finger / Signal | Arduino Pin | Range |
+|---|---|---|
+| Ultrasonic Trigger | D11 | 10 µs pulse |
+| Ultrasonic Echo | D12 | — |
+| Thumb | D3 (PWM) | 90° → 175° |
+| Index | D5 (PWM) | 90° → 180° |
+| Middle | D6 (PWM) | 90° → 0° |
+| Ring | D9 (PWM) | 90° → 0° |
+| Pinky | D10 (PWM) | 90° → 0° |
 
-## 3. Firmware Engineering (C++)
+All servos share a common ground with the Uno.
 
-The firmware (`main.ino`) executes a **20Hz control loop** featuring three distinct signal processing stages:
+## How It Works
 
-### A. Signal Conditioning (Glitch Filter)
-The HC-SR04 sensor is prone to acoustic noise and packet loss (returning `0`).
-* **Debounce Algorithm:** The system rejects invalid `0` readings and waits for **5 consecutive missing frames** before defaulting to the "Open" state. This prevents the hand from snapping open due to momentary sensor occlusion.
-* **Input Clamping:** Raw data is constrained to a 5cm–20cm active window to filter out environmental background noise.
+The main loop runs at 20 Hz: read the ultrasonic sensor, map the distance to a servo position, and update the five fingers. The active range is 5–20 cm — hand closed at 5 cm, fully open at 20 cm, linear in between.
 
-### B. Motion Control (Velocity Smoothing)
-Direct mapping of sensor data to servos causes erratic, jerky movement.
-* **Slew Rate Limiter:** Implemented a "Hydraulic" damping model where servo position is updated in fixed increments (`speedLimit = 0.8`) rather than instantaneous jumps.
-* **Result:** This enforces a constant-velocity profile, allowing precise, non-destructive grasping of deformable objects (e.g., paper balls).
+Three things sit between the raw sensor reading and the servo output:
 
-### C. Power Load Management
-Driving 5 servos simultaneously causes current spikes >1.2A, risking USB brownouts.
-* **Sequential Actuation:** The firmware updates finger positions in a staggered cascade (Thumb → 50ms Delay → Index...).
-* **Result:** Distributes peak current draw over time, stabilizing the 5V rail.
+### Glitch filter
 
-## 4. Performance Validation
-The system was validated through "Pick-and-Place" trials to test mechanical compliance and grip stability:
+The HC-SR04 occasionally returns 0 when a ping times out or gets absorbed by a soft surface. Acting on those directly would make the hand snap open every few seconds. The firmware rejects zero readings and only falls back to the "open" state after 5 consecutive bad frames in a row, which is long enough to ignore dropouts but short enough to respond when the operator actually leaves the workspace.
 
-| Test Object | Morphology | Success Rate (n=10) | Engineering Notes |
-| :--- | :--- | :--- | :--- |
-| **Cardboard Roll** | Rigid Cylinder | 10/10 | High stability; sequential grip effective. |
-| **Paper Ball** | Deformable Sphere | 10/10 | Velocity smoothing prevented crushing. |
-| **Plastic Cup** | Low-Friction Cone | 9/10 | Required careful approach; traction pads essential. |
+### Motion smoothing
 
-## 5. Setup & Calibration
-1.  **Mount Sensor:** Position HC-SR04 facing the operator's workspace.
-2.  **Flash Firmware:** Upload `main.ino`.
-3.  **Calibrate:** Check Serial Monitor for `Target: [cm] | Robot: [pos]` output.
-    * **5cm:** Hand Fully Closed (Grip).
-    * **20cm:** Hand Fully Open (Release).
+Mapping sensor distance directly to servo angle produces twitchy, jerky motion — small hand movements translate into big servo jumps. Instead, the firmware updates each servo toward its target by a fixed increment per loop (`speedLimit = 0.8°`), which enforces a constant-velocity profile. The practical effect is that the hand can grip deformable objects without crushing them.
 
----
-*Developed as an iterative engineering prototype to explore feedback control systems and electromechanical integration.*
+### Staggered actuation
+
+Driving five SG90s simultaneously pulls more than 1.2 A at peak, which is enough to brown out a USB 5V rail. The firmware updates fingers in sequence with a 50 ms delay between each one, spreading the current draw over time. The motion still looks simultaneous to a human observer but the power supply sees five smaller spikes instead of one big one.
+
+## Testing
+
+Ran pick-and-place trials on three objects to check grip behaviour:
+
+| Object | Result (10 trials) | Notes |
+|---|---|---|
+| Cardboard roll | 10/10 | Easy — rigid, good friction |
+| Paper ball | 10/10 | Motion smoothing kept it from being crushed |
+| Plastic cup | 9/10 | Low-friction surface, fingertip rubber pads made the difference |
+
+## Challenges
+
+**Sensor noise.** Early versions jittered constantly because the HC-SR04 was picking up reflections off the operator's clothing and occasional dropouts. Adding input clamping (only act on 5–20 cm readings) and the zero-reading debounce cleaned it up.
+
+**Power brownouts.** First version tried to drive all five servos in parallel and kept resetting the Arduino every time the hand closed. Figured out it was a current spike issue by watching the 5V rail on a scope. Staggering the servo updates fixed it without needing an external power supply.
+
+**Tendon tensioning.** Getting all five fingers to close evenly took a lot of trial and error on the nylon cord tension. Too loose and the finger doesn't fully close; too tight and the servo stalls at the end of travel.
+
+## Future Improvements
+
+- **External power.** A dedicated 5V supply for the servos (with a shared ground) would remove the need for staggered actuation and allow faster, more natural hand motion.
+- **Per-finger control.** A camera-based input (e.g. MediaPipe hand tracking) could give independent finger positions instead of a single open/close axis.
+- **Closed-loop feedback.** Adding force-sensitive resistors at the fingertips would let the hand detect when it's gripped an object and stop closing, rather than relying on motion smoothing to avoid crushing.
+- **Non-blocking firmware.** Same story as my other projects — the current code uses `delay()` for the staggered actuation, which blocks the sensor loop. A `millis()`-based scheduler would let the hand keep reading input while moving.
